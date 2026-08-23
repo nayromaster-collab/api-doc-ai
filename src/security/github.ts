@@ -1,4 +1,3 @@
-import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import os from "os";
@@ -6,16 +5,84 @@ import os from "os";
 const GITHUB_URL_PATTERN =
   /^https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\.git)?(?:\/.*)?$/;
 
+const GITHUB_API = "https://api.github.com";
+
 export function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const match = url.trim().match(GITHUB_URL_PATTERN);
   if (!match) return null;
   return { owner: match[1], repo: match[2].replace(/\.git$/, "") };
 }
 
-export function cloneRepository(
+async function fetchJson(url: string): Promise<any> {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.v3+json",
+  };
+
+  const token = process.env.GITHUB_TOKEN;
+  if (token) {
+    headers.Authorization = `token ${token}`;
+  }
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    throw new Error(`GitHub API error: ${res.status}`);
+  }
+  return res.json();
+}
+
+async function downloadFile(
+  owner: string,
+  repo: string,
+  filePath: string,
+  targetPath: string
+): Promise<void> {
+  const url = `https://raw.githubusercontent.com/${owner}/${repo}/main/${filePath}`;
+  const headers: Record<string, string> = {};
+
+  const token = process.env.GITHUB_TOKEN;
+  if (token) {
+    headers.Authorization = `token ${token}`;
+  }
+
+  const res = await fetch(url, { headers });
+
+  if (!res.ok) {
+    // Try master branch
+    const url2 = `https://raw.githubusercontent.com/${owner}/${repo}/master/${filePath}`;
+    const res2 = await fetch(url2, { headers });
+    if (!res2.ok) return;
+    const content = await res2.text();
+    const dir = path.dirname(targetPath);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(targetPath, content);
+    return;
+  }
+
+  const content = await res.text();
+  const dir = path.dirname(targetPath);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(targetPath, content);
+}
+
+const IGNORED_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "vendor",
+  "storage",
+  ".github",
+  "tests",
+  "database",
+  "public",
+  "resources",
+  "bootstrap",
+]);
+
+const PHP_EXTENSIONS = new Set([".php"]);
+
+export async function cloneRepository(
   githubUrl: string,
   targetDir: string
-): string {
+): Promise<string> {
   const parsed = parseGitHubUrl(githubUrl);
   if (!parsed) {
     throw new Error(
@@ -23,22 +90,55 @@ export function cloneRepository(
     );
   }
 
-  const cloneUrl = `https://github.com/${parsed.owner}/${parsed.repo}.git`;
-  const repoPath = path.join(targetDir, parsed.repo);
+  const { owner, repo } = parsed;
+  const repoPath = path.join(targetDir, repo);
+  fs.mkdirSync(repoPath, { recursive: true });
 
   try {
-    execSync(`git clone --depth 1 "${cloneUrl}" "${repoPath}"`, {
-      timeout: 60_000,
-      stdio: "pipe",
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
-    });
-  } catch {
+    // Get default branch
+    const repoData = await fetchJson(`${GITHUB_API}/repos/${owner}/${repo}`);
+    const defaultBranch = repoData.default_branch || "main";
+
+    // Get file tree
+    const treeData = await fetchJson(
+      `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`
+    );
+
+    const files = treeData.tree.filter(
+      (item: any) =>
+        item.type === "blob" && shouldDownload(item.path)
+    );
+
+    // Download files in parallel batches
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map((file: any) =>
+          downloadFile(owner, repo, file.path, path.join(repoPath, file.path))
+        )
+      );
+    }
+
+    return repoPath;
+  } catch (err) {
+    // Clean up on failure
+    try {
+      fs.rmSync(repoPath, { recursive: true, force: true });
+    } catch {}
     throw new Error(
-      "Failed to clone repository. Make sure it is a public GitHub repository."
+      "Failed to fetch repository. Make sure it is a public GitHub repository."
     );
   }
+}
 
-  return repoPath;
+function shouldDownload(filePath: string): boolean {
+  const parts = filePath.split("/");
+  for (const part of parts) {
+    if (IGNORED_DIRS.has(part)) return false;
+  }
+  const ext = path.extname(filePath);
+  return PHP_EXTENSIONS.has(ext) || filePath.endsWith("artisan");
 }
 
 export function cleanupTempDir(dirPath: string): void {
@@ -46,9 +146,7 @@ export function cleanupTempDir(dirPath: string): void {
     if (fs.existsSync(dirPath)) {
       fs.rmSync(dirPath, { recursive: true, force: true });
     }
-  } catch {
-    // best effort cleanup
-  }
+  } catch {}
 }
 
 export function createTempDir(): string {

@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
       tempDir = createTempDir();
       try {
-        projectPath = cloneRepository(source, tempDir);
+        projectPath = await cloneRepository(source, tempDir);
       } catch (err) {
         return NextResponse.json(
           {
