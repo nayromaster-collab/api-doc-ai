@@ -74,6 +74,34 @@ function parseRouteFile(content: string, prefix: string): LaravelRouteInfo[] {
     });
   }
 
+  // Route::get/post/etc('path', function() { ... }) or Route::get/post/etc('path', [Controller::class, 'method'])
+  const closurePattern =
+    /\bRoute::(get|post|put|patch|delete|options|any|match)\s*\(\s*['"]([^'"]+)['"]\s*,/g;
+  let closureMatch;
+  const seenUris = new Set(routes.map((r) => `${r.method}:${r.uri}`));
+
+  while ((closureMatch = closurePattern.exec(content)) !== null) {
+    const method = closureMatch[1].toUpperCase();
+    const rawUri = closureMatch[2];
+    const uri = prefix === "api" ? `/api${rawUri}` : rawUri;
+    const key = `${method}:${uri}`;
+
+    if (seenUris.has(key)) continue;
+    seenUris.add(key);
+
+    const middleware = extractMiddleware(content, closureMatch[0]);
+    const parameters = extractParameters(uri);
+
+    routes.push({
+      method,
+      uri,
+      controller: "Closure",
+      action: "__invoke",
+      middleware,
+      parameters,
+    });
+  }
+
   const groupPattern =
     /\bRoute::group\s*\(\s*\[[^\]]*\]\s*,\s*function\s*\(\)\s*\{([\s\S]*?)\}\s*\)/g;
   let groupMatch;
