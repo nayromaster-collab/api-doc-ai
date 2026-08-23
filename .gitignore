@@ -9,3 +9,6 @@ dist/
 .vercel
 p.txt
 n.txt
+e.txt
+t.txt
+*.txt

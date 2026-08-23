@@ -1,3 +1,0 @@
-https://github.com/nayromaster-collab/api-doc-ai
-https://github.com/laravel/framework
-i tried these two and it gives:Failed to clone repository. Make sure it is a public GitHub repository.
