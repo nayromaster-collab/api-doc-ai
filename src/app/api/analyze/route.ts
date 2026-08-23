@@ -5,10 +5,16 @@ import { analyzeLaravelProject } from "@/analyzer/laravel";
 import { analyzeWithLLM } from "@/llm";
 import { generateOpenAPI } from "@/openapi/generate";
 import { generateMarkdown } from "@/markdown/generate";
+import {
+  parseGitHubUrl,
+  cloneRepository,
+  createTempDir,
+  cleanupTempDir,
+} from "@/security/github";
 import type { EnrichedRoute } from "@/types/api";
 
 const RequestSchema = z.object({
-  projectPath: z.string().min(1, "Project path is required").max(500),
+  source: z.string().min(1, "Source is required").max(500),
 });
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -29,9 +35,18 @@ function checkRateLimit(ip: string): boolean {
   return true;
 }
 
+function isGitHubUrl(source: string): boolean {
+  return /^https?:\/\/github\.com\//.test(source.trim());
+}
+
 export async function POST(request: NextRequest) {
+  let tempDir: string | null = null;
+
   try {
-    const ip = request.headers.get("x-forwarded-for") || request.headers.get("x-real-ip") || "anonymous";
+    const ip =
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      "anonymous";
     if (!checkRateLimit(ip)) {
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },
@@ -49,7 +64,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { projectPath } = parsed.data;
+    const { source } = parsed.data;
+    let projectPath: string;
+
+    if (isGitHubUrl(source)) {
+      const parsedUrl = parseGitHubUrl(source);
+      if (!parsedUrl) {
+        return NextResponse.json(
+          { error: "Invalid GitHub URL. Use format: https://github.com/owner/repo" },
+          { status: 400 }
+        );
+      }
+
+      tempDir = createTempDir();
+      try {
+        projectPath = cloneRepository(source, tempDir);
+      } catch (err) {
+        return NextResponse.json(
+          {
+            error:
+              err instanceof Error
+                ? err.message
+                : "Failed to clone repository.",
+          },
+          { status: 400 }
+        );
+      }
+    } else {
+      projectPath = source;
+    }
+
     const validation = validateProjectPath(projectPath);
 
     if (!validation.valid) {
@@ -86,5 +130,9 @@ export async function POST(request: NextRequest) {
       { error: "An error occurred while analyzing the project." },
       { status: 500 }
     );
+  } finally {
+    if (tempDir) {
+      cleanupTempDir(tempDir);
+    }
   }
 }

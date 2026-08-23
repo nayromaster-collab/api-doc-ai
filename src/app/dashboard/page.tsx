@@ -61,7 +61,7 @@ export default function Home() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectPath: projectPath.trim() }),
+        body: JSON.stringify({ source: projectPath.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -112,14 +112,14 @@ export default function Home() {
       <main className="max-w-6xl mx-auto px-6 py-8">
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-8">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Laravel Project Path
+            GitHub Repository URL or Local Path
           </label>
           <div className="flex gap-3">
             <input
               type="text"
               value={projectPath}
               onChange={(e) => setProjectPath(e.target.value)}
-              placeholder="/path/to/your/laravel-project"
+              placeholder="https://github.com/owner/repo or /path/to/laravel-project"
               className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             />
@@ -139,7 +139,11 @@ export default function Home() {
         {loading && (
           <div className="text-center py-12">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-4"></div>
-            <p className="text-gray-500">Analyzing Laravel project...</p>
+            <p className="text-gray-500">
+              {projectPath.includes("github.com")
+                ? "Cloning and analyzing repository..."
+                : "Analyzing Laravel project..."}
+            </p>
           </div>
         )}
 
