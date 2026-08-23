@@ -31,15 +31,36 @@ export function validateProjectPath(
     return { valid: false, error: "Path is not a directory." };
   }
 
-  const artisanPath = path.join(resolved, "artisan");
-  if (!fs.existsSync(artisanPath)) {
+  if (!isLaravelProject(resolved)) {
     return {
       valid: false,
-      error: "Not a Laravel project (artisan file not found).",
+      error: "Not a Laravel project. Expected artisan file or composer.json with laravel/framework.",
     };
   }
 
   return { valid: true };
+}
+
+function isLaravelProject(dir: string): boolean {
+  if (fs.existsSync(path.join(dir, "artisan"))) return true;
+
+  const composerPath = path.join(dir, "composer.json");
+  if (fs.existsSync(composerPath)) {
+    try {
+      const composer = JSON.parse(fs.readFileSync(composerPath, "utf-8"));
+      const deps = {
+        ...composer.require,
+        ...composer["require-dev"],
+      };
+      if (deps["laravel/framework"]) return true;
+    } catch {}
+  }
+
+  const hasRoutes = fs.existsSync(path.join(dir, "routes"));
+  const hasApp = fs.existsSync(path.join(dir, "app"));
+  if (hasRoutes && hasApp) return true;
+
+  return false;
 }
 
 export function shouldIgnorePath(filePath: string): boolean {

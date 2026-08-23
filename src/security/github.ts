@@ -138,7 +138,10 @@ function shouldDownload(filePath: string): boolean {
     if (IGNORED_DIRS.has(part)) return false;
   }
   const ext = path.extname(filePath);
-  return PHP_EXTENSIONS.has(ext) || filePath.endsWith("artisan");
+  if (PHP_EXTENSIONS.has(ext)) return true;
+  if (filePath.endsWith("artisan")) return true;
+  if (filePath === "composer.json") return true;
+  return false;
 }
 
 export function cleanupTempDir(dirPath: string): void {
