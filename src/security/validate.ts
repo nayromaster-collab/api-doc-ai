@@ -48,11 +48,13 @@ function isLaravelProject(dir: string): boolean {
   if (fs.existsSync(composerPath)) {
     try {
       const composer = JSON.parse(fs.readFileSync(composerPath, "utf-8"));
-      const deps = {
+      const allDeps = {
         ...composer.require,
         ...composer["require-dev"],
       };
-      if (deps["laravel/framework"]) return true;
+      if (allDeps["laravel/framework"]) return true;
+      if (composer.name === "laravel/framework") return true;
+      if (composer.name && composer.name.startsWith("laravel/")) return true;
     } catch {}
   }
 
