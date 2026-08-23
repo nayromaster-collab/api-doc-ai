@@ -15,6 +15,19 @@ export function extractRoutes(projectRoot: string): LaravelRouteInfo[] {
     routes.push(...parseRouteFile(webContent, "web"));
   }
 
+  // Scan route subdirectories (e.g., routes/backend/, routes/frontend/)
+  const routeFiles = collectFiles(projectRoot, "routes", [".php"]);
+  for (const file of routeFiles) {
+    if (
+      file.relativePath === "routes/api.php" ||
+      file.relativePath === "routes/web.php"
+    ) {
+      continue;
+    }
+    const isApi = file.relativePath.includes("api");
+    routes.push(...parseRouteFile(file.content, isApi ? "api" : "web"));
+  }
+
   return routes;
 }
 
