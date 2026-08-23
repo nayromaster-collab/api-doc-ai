@@ -33,10 +33,11 @@ async function fetchJson(url: string): Promise<any> {
 async function downloadFile(
   owner: string,
   repo: string,
+  branch: string,
   filePath: string,
   targetPath: string
 ): Promise<void> {
-  const url = `https://raw.githubusercontent.com/${owner}/${repo}/main/${filePath}`;
+  const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
   const headers: Record<string, string> = {};
 
   const token = process.env.GITHUB_TOKEN;
@@ -45,18 +46,7 @@ async function downloadFile(
   }
 
   const res = await fetch(url, { headers });
-
-  if (!res.ok) {
-    // Try master branch
-    const url2 = `https://raw.githubusercontent.com/${owner}/${repo}/master/${filePath}`;
-    const res2 = await fetch(url2, { headers });
-    if (!res2.ok) return;
-    const content = await res2.text();
-    const dir = path.dirname(targetPath);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(targetPath, content);
-    return;
-  }
+  if (!res.ok) return;
 
   const content = await res.text();
   const dir = path.dirname(targetPath);
@@ -95,11 +85,9 @@ export async function cloneRepository(
   fs.mkdirSync(repoPath, { recursive: true });
 
   try {
-    // Get default branch
     const repoData = await fetchJson(`${GITHUB_API}/repos/${owner}/${repo}`);
     const defaultBranch = repoData.default_branch || "main";
 
-    // Get file tree
     const treeData = await fetchJson(
       `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`
     );
@@ -109,20 +97,18 @@ export async function cloneRepository(
         item.type === "blob" && shouldDownload(item.path)
     );
 
-    // Download files in parallel batches
     const BATCH_SIZE = 10;
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
       const batch = files.slice(i, i + BATCH_SIZE);
       await Promise.all(
         batch.map((file: any) =>
-          downloadFile(owner, repo, file.path, path.join(repoPath, file.path))
+          downloadFile(owner, repo, defaultBranch, file.path, path.join(repoPath, file.path))
         )
       );
     }
 
     return repoPath;
   } catch (err) {
-    // Clean up on failure
     try {
       fs.rmSync(repoPath, { recursive: true, force: true });
     } catch {}
